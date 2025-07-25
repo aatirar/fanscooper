@@ -1,0 +1,186 @@
+{
+  "name": "LinkedIn Post Engagement Tracker with Pagination",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "linkedin-top-fans",
+        "options": {}
+      },
+      "id": "Webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        200,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const url = $json[\"linkedinUrl\"];\nconst days = parseInt($json[\"days\"] || 5);\nif (!url) throw new Error(\"Missing linkedinUrl\");\nconst match = url.match(/linkedin\\.com\\/in\\/([^/?#]+)/);\nif (!match) throw new Error(\"Could not extract username from URL\");\n\nconst sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);\nreturn [{\n  json: {\n    username: match[1],\n    sinceDateISO: sinceDate.toISOString().split(\"T\")[0] + \" 00:00\"\n  }\n}];"
+      },
+      "id": "ExtractUsername",
+      "name": "Extract Username & Time Window",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        400,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "start",
+              "value": "0"
+            },
+            {
+              "name": "posts",
+              "value": "=[]"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "SetLoopParams",
+      "name": "Set Loop Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        600,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://linkedin-api8.p.rapidapi.com/get-profile-posts",
+        "method": "GET",
+        "queryParameters": [
+          {
+            "name": "username",
+            "value": "={{$json.username}}"
+          },
+          {
+            "name": "start",
+            "value": "={{$json.start}}"
+          }
+        ],
+        "headerParameters": [
+          {
+            "name": "x-rapidapi-host",
+            "value": "linkedin-api8.p.rapidapi.com"
+          },
+          {
+            "name": "x-rapidapi-key",
+            "value": "={{$env.RAPIDAPI_KEY}}"
+          }
+        ]
+      },
+      "id": "GetPosts",
+      "name": "Get Profile Posts HTTP Call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        800,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const since = new Date($('Extract Username & Time Window').first().json.sinceDateISO);\nconst incomingPosts = items[0].json.data || [];\nconst recentPosts = [];\n\nlet containsOldPost = false;\n\nfor (const post of incomingPosts) {\n  const postDate = new Date(post.postedDate);\n  if (postDate < since) {\n    containsOldPost = true;\n    break;\n  } else {\n    recentPosts.push(post);\n  }\n}\n\nconst shouldStop = containsOldPost || incomingPosts.length < 50;\n\nreturn [{\n  json: {\n    username: $json.username,\n    sinceDateISO: $json.sinceDateISO,\n    start: shouldStop ? null : $json.start + 50,\n    posts: [...($json.posts || []), ...recentPosts],\n    continue: !shouldStop\n  }\n}];"
+      },
+      "id": "FilterAndState",
+      "name": "Filter and update state",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        1000,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json[\"continue\"]}}",
+              "operation": "isTrue"
+            }
+          ]
+        }
+      },
+      "id": "ShouldContinue",
+      "name": "Should Continue?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "return ($json.posts || []).map(p => ({ json: p }));"
+      },
+      "id": "ExtractPosts",
+      "name": "Extract Posts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        1400,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          "ExtractUsername"
+        ]
+      ]
+    },
+    "ExtractUsername": {
+      "main": [
+        [
+          "SetLoopParams"
+        ]
+      ]
+    },
+    "SetLoopParams": {
+      "main": [
+        [
+          "GetPosts"
+        ]
+      ]
+    },
+    "GetPosts": {
+      "main": [
+        [
+          "FilterAndState"
+        ]
+      ]
+    },
+    "FilterAndState": {
+      "main": [
+        [
+          "ShouldContinue"
+        ]
+      ]
+    },
+    "ShouldContinue": {
+      "main": [
+        [
+          "GetPosts",
+          "true"
+        ],
+        [
+          "ExtractPosts",
+          "false"
+        ]
+      ]
+    }
+  }
+}

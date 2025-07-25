@@ -1,0 +1,7 @@
+{
+  "scoring": {
+    "reaction": 1,
+    "comment": 1,
+    "repost": 1
+  }
+} 
